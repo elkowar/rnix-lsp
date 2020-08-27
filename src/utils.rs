@@ -131,12 +131,18 @@ pub fn populate<T: EntryHolder>(
     }
     Some(())
 }
-pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var>> {
+pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<(HashMap<String, Var>, Vec<String>)> {
     let mut scope = HashMap::new();
+    let mut withs = Vec::<String>::new();
 
     let mut current = Some(node);
     while let Some(node) = current {
         match ParsedType::try_from(node.clone()) {
+            Ok(ParsedType::With(with)) => {
+                if let Some(namespace) = with.namespace() {
+                    withs.push(namespace.text().to_string());
+                }
+            }
             Ok(ParsedType::LetIn(let_in)) => {
                 populate(&file, &mut scope, &let_in);
             }
@@ -185,8 +191,37 @@ pub fn scope_for(file: &Rc<Url>, node: SyntaxNode) -> Option<HashMap<String, Var
         current = node.parent();
     }
 
-    Some(scope)
+    withs.reverse();
+    /*
+        with x; with y; a + b
+        ns = ["x", "y"]
+        let possible_scopes = Vec::<String>::new();
+        for i in 0..ns.len() {
+            let prevs = ns[..i];
+            let mut new_scopes = prevs
+                .iter()
+                .map(|s| [s, ".", &name].join("").to_owned())
+                .collect::<Vec<String>>();
+            possible_scopes.append(new_scopes);
+            possible_scopes.push(n);
+        }
+    */
+
+    let mut possible_scopes = Vec::<String>::new();
+    for i in 0..(withs.len()) {
+        let name = &withs[i];
+        let prevs = &withs[..i];
+        let mut new_scopes = prevs
+            .iter()
+            .map(|s| [s, ".", &name].join("").to_owned())
+            .collect::<Vec<String>>();
+        possible_scopes.append(&mut new_scopes);
+        possible_scopes.push(name.clone());
+    }
+
+    Some((scope, possible_scopes))
 }
+
 pub fn selection_ranges(root: &SyntaxNode, content: &str, pos: Position) -> Option<SelectionRange> {
     let pos = lookup_pos(content, pos)?;
     let node = root

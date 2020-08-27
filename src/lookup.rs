@@ -21,7 +21,7 @@ impl App {
         let mut file = Rc::new(file);
         let info = utils::ident_at(&root, offset)?;
         let ident = info.ident;
-        let mut entries = utils::scope_for(&file, ident.node().clone())?;
+        let (mut entries, _) = utils::scope_for(&file, ident.node().clone())?;
         for var in info.path {
             let node = entries.get(&var)?.value.clone()?;
             entries = self.scope_from_node(&mut file, node)?;
@@ -96,9 +96,13 @@ impl App {
                             NodeOrToken::Node(n) => n.kind() == SyntaxKind::NODE_IDENT,
                             NodeOrToken::Token(t) => t.kind() == SyntaxKind::TOKEN_DOT,
                         })
-                        .filter_map(|n| n.as_node().cloned())
-                        .filter_map(try_get_ident_name)
-                        .filter(|name| !name.trim().trim_end_matches("\n").is_empty())
+                        .filter_map(|n| match n {
+                            NodeOrToken::Token(t) if t.kind() == SyntaxKind::TOKEN_DOT => {
+                                Some("".to_owned())
+                            }
+                            x => x.as_node().cloned().and_then(|n| try_get_ident_name(n)),
+                        })
+                        // .filter(|name| !name.trim().trim_end_matches("\n").is_empty())
                         .map(|x| x.replace("\n", ""))
                         .collect::<Vec<_>>();
                     Some(path)
@@ -126,7 +130,9 @@ impl App {
             for child in outermost_select.clone()?.node().descendants_with_tokens() {
                 match child {
                     NodeOrToken::Node(_) => {}
-                    NodeOrToken::Token(t) if t.kind() == SyntaxKind::TOKEN_DOT => {}
+                    NodeOrToken::Token(t) if t.kind() == SyntaxKind::TOKEN_DOT => {
+                        path.push("".to_owned());
+                    }
                     NodeOrToken::Token(t) if t.kind() == SyntaxKind::TOKEN_IDENT => {
                         path.push(t.text().to_string());
                     }
@@ -135,6 +141,13 @@ impl App {
                     }
                 }
             }
+            let last = path.len() - 1;
+            let path = path
+                .into_iter()
+                .enumerate()
+                .filter(|(i, p)| *i == last || p != "")
+                .map(|(_, p)| p)
+                .collect::<Vec<String>>();
             Some((outermost_select?.node().clone(), path))
         });
 
