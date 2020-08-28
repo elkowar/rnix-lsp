@@ -99,7 +99,9 @@ impl App {
         let mut strip_val = std::collections::HashMap::<String, String>::new();
         let mut search_results: Vec<(String, DocEntry)> = self
             .manix_values
-            .search(&full_ident_name.join("."))
+            .search(&manix::Lowercase(
+                full_ident_name.join(".").to_ascii_lowercase().as_bytes(),
+            ))
             .into_iter()
             .map(|e| (full_ident_name.join(".").to_owned(), e))
             .collect();
@@ -121,7 +123,7 @@ impl App {
 
                 let mut results: Vec<(String, DocEntry)> = self
                     .manix_values
-                    .search(&full_path)
+                    .search(&manix::Lowercase(full_path.to_ascii_lowercase().as_bytes()))
                     .into_iter()
                     .map(|e| (full_path.clone(), e))
                     .collect();

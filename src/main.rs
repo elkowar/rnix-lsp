@@ -400,8 +400,10 @@ impl App {
         let cursor = utils::ident_at(&ast.node(), offset)?;
         let ident = cursor.ident.as_str();
 
-        let mut definitions = self.manix_values.search(&ident.to_lowercase());
-        definitions.append(&mut self.manix_options.search(&ident.to_lowercase()));
+        let ident_lower = ident.to_ascii_lowercase();
+        let query = manix::Lowercase(ident_lower.as_bytes());
+        let mut definitions = self.manix_values.search(&query);
+        definitions.append(&mut self.manix_options.search(&query));
 
         Some(
             definitions
