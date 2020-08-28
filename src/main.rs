@@ -35,8 +35,10 @@ use lsp_types::{
     *,
 };
 use manix::{
-    comments_docsource::CommentsDatabase, nixpkgs_tree_docsource,
-    options_docsource::{self, OptionsDatabase}, xml_docsource, AggregateDocSource, Cache, DocSource,
+    comments_docsource::CommentsDatabase,
+    nixpkgs_tree_docsource,
+    options_docsource::{self, OptionsDatabase},
+    xml_docsource, AggregateDocSource, Cache, DocSource,
 };
 use nixpkgs_tree_docsource::NixpkgsTreeDatabase;
 use rnix::{
@@ -398,8 +400,10 @@ impl App {
         let cursor = utils::ident_at(&ast.node(), offset)?;
         let ident = cursor.ident.as_str();
 
-        let mut definitions = self.manix_values.search(&ident.to_lowercase());
-        definitions.append(&mut self.manix_options.search(&ident.to_lowercase()));
+        let ident_lower = ident.to_ascii_lowercase();
+        let query = manix::Lowercase(ident_lower.as_bytes());
+        let mut definitions = self.manix_values.search(&query);
+        definitions.append(&mut self.manix_options.search(&query));
 
         Some(
             definitions
@@ -449,7 +453,7 @@ impl App {
             return None;
         }
         let old = info.ident;
-        let scope = utils::scope_for(&Rc::new(uri.clone()), old.node().clone())?;
+        let (scope, _) = utils::scope_for(&Rc::new(uri.clone()), old.node().clone())?;
 
         let mut rename = Rename {
             edits: Vec::new(),

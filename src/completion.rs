@@ -56,8 +56,11 @@ impl App {
         let root_node = ast.node();
 
         let node = utils::closest_node_to(&root_node, offset)?;
-        let (full_ident_node, full_ident_name) = self.full_ident_name(&node)?;
-        dbg!(node.text_range());
+        dbg!(&node);
+        let (full_ident_node, full_ident_name) = self
+            .full_ident_name(&node)
+            .unwrap_or((node.clone(), vec![node.text().to_string()]));
+        dbg!(&full_ident_node, &full_ident_name);
 
         let node_range = Range {
             start: utils::offset_to_pos(
@@ -84,27 +87,104 @@ impl App {
                     .to_usize(),
             ),
         };
+        let node_range: Range = Range {
+            start: utils::offset_to_pos(content, node.text_range().start().to_usize()),
+            end: utils::offset_to_pos(content, node.text_range().end().to_usize()),
+        };
 
-        let search_results = self.manix_values.search(&full_ident_name.clone().join("."));
+        // let search_results = std::collections::HashSet::<DocEntry>::new();
+        // for res in self.manix_values.search(&full_ident_name.join(".")) {
+        //     search_results.insert(res);
+        // }
+        let mut strip_val = std::collections::HashMap::<String, String>::new();
+        let mut search_results: Vec<(String, DocEntry)> = self
+            .manix_values
+            .search(&manix::Lowercase(
+                full_ident_name.join(".").to_ascii_lowercase().as_bytes(),
+            ))
+            .into_iter()
+            .map(|e| (full_ident_name.join(".").to_owned(), e))
+            .collect();
+        for r in search_results.iter() {
+            let mut namespace = full_ident_name.clone();
+            namespace.pop();
+            strip_val.insert(r.1.name(), namespace.join(".") + ".");
+        }
+        if let Some((_, possible_namespaces)) =
+            utils::scope_for(&std::rc::Rc::new(params.text_document.uri.clone()), node)
+        {
+            dbg!(&possible_namespaces);
+            for possible_namespace in possible_namespaces {
+                let mut full_path = String::new();
+                full_path.push_str(&possible_namespace);
+                full_path.push('.');
+                full_path.push_str(&full_ident_name.join("."));
+                dbg!(&full_path);
 
-        let (namespace, namespace_items) =
-            self.next_namespace_step_completions(full_ident_name.clone(), search_results);
+                let mut results: Vec<(String, DocEntry)> = self
+                    .manix_values
+                    .search(&manix::Lowercase(full_path.to_ascii_lowercase().as_bytes()))
+                    .into_iter()
+                    .map(|e| (full_path.clone(), e))
+                    .collect();
+                dbg!(&results);
 
-        let manix_completions = namespace_items
-            .iter()
-            .unique_by(|x| x.name())
-            .map(|def| CompletionItem {
-                label: def.name().clone(),
-                text_edit: Some(CompletionTextEdit::Edit(TextEdit {
-                    range: node_range,
-                    new_text: def.name().clone(),
-                })),
-                documentation: def
-                    .try_as_doc_entry()
-                    .map(|entry| Documentation::String(entry.pretty_printed())),
-                ..CompletionItem::default()
-            })
+                let mut x: Vec<&str> = full_path.split(".").collect();
+                x.pop();
+                for (_, doc) in results.iter() {
+                    let namespace = x.clone();
+                    if let Some(old) = strip_val.get(&doc.name()) {
+                        if old.len() > x.len() {
+                            continue;
+                        }
+                    }
+                    strip_val.insert(doc.name(), x.join(".") + ".");
+                }
+
+                search_results.append(&mut results);
+            }
+        }
+        let search_results = search_results
+            .into_iter()
+            // .sorted_by(|a, b| Ord::cmp(&a.0.len(), &b.0.len()).reverse())
+            .unique_by(|(_, entry)| entry.name())
+            .into_group_map()
+            .into_iter()
             .collect_vec();
+
+        let mut manix_completions = Vec::<CompletionItem>::new();
+
+        for (path, search_results) in search_results {
+            let (namespace, namespace_items) = self.next_namespace_step_completions(
+                path.split(".").map(|s| s.to_owned()).collect(),
+                search_results,
+            );
+
+            let mut completions = namespace_items
+                .iter()
+                .unique_by(|x| x.name())
+                .map(|def| CompletionItem {
+                    label: if let Some(namespace) = strip_val.get(&def.name()) {
+                        eprintln!("stripping {} in {}", &namespace, def.name());
+                        def.name()
+                            .strip_prefix(namespace)
+                            .unwrap_or(&path)
+                            .to_owned()
+                    } else {
+                        def.name()
+                    },
+                    text_edit: Some(CompletionTextEdit::Edit(TextEdit {
+                        range: node_range,
+                        new_text: def.name().clone(),
+                    })),
+                    documentation: def
+                        .try_as_doc_entry()
+                        .map(|entry| Documentation::String(entry.pretty_printed())),
+                    ..CompletionItem::default()
+                })
+                .collect_vec();
+            manix_completions.append(&mut completions);
+        }
         Some(manix_completions)
     }
 
@@ -139,7 +219,7 @@ impl App {
                     .name()
                     .split('.')
                     .zip(query_ns_iter.clone())
-                    .take_while(|(a, b)| a == b)
+                    // .take_while(|(a, b)| a == b)
                     .map(|(a, _)| a.to_string())
                     .collect_vec()
             })
@@ -148,15 +228,15 @@ impl App {
             dbg!(&current_ns, &longest_match);
             let completions = search_results
                 .into_iter()
-                .filter(|result| {
-                    result
-                        .name()
-                        .split('.')
-                        .zip(query_ns_iter.clone())
-                        .take_while(|(a, b)| a == b)
-                        .count()
-                        > 0
-                })
+                // .filter(|result| {
+                //     result
+                //         .name()
+                //         .split('.')
+                //         .zip(query_ns_iter.clone())
+                //         .take_while(|(a, b)| a == b)
+                //         .count()
+                //         > 0
+                // })
                 .map(|result| {
                     use NamespaceCompletionResult::*;
                     if result.name().split('.').count() - 1 == longest_match.len() {
